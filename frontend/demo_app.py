@@ -8,7 +8,6 @@ from datetime import datetime
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from api.document_processor import detect_missing_reports
 load_dotenv('../config.env')
 
 def parse_chronology(analysis_text):
@@ -40,6 +39,9 @@ def parse_chronology(analysis_text):
         
     return events
 
+def detect_missing_reports(processed_files):
+    """Simplified frontend version without fitz"""
+    return []
 
 st.set_page_config(
     page_title="Legal Medical Analyzer",
