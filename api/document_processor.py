@@ -24,69 +24,74 @@ REQUIRED_DOC_TYPES = [
 ]
 
 def extract_pdf_text(file_stream):
+    """Extract text from searchable PDFs"""
     text = ""
     with fitz.open(stream=file_stream.read(), filetype="pdf") as doc:
         for page in doc:
             text += page.get_text()
     return text if text.strip() else None
 
+def is_scanned_pdf(content):
+    """Check if PDF needs OCR"""
+    with fitz.open(stream=content, filetype="pdf") as doc:
+        return not any(page.get_text().strip() for page in doc)
+
 def ocr_pdf(file_stream):
+    """Process scanned PDFs with OCR"""
     images = convert_from_bytes(file_stream.read())
-    text = ""
-    for img in images:
-        text += pytesseract.image_to_string(img)
-    return text
+    return "\n".join(pytesseract.image_to_string(img) for img in images)
 
 def extract_docx_text(file_stream):
+    """Extract text from DOCX files"""
     try:
         doc = Document(io.BytesIO(file_stream.read()))
-        full_text = []
-        
-        for para in doc.paragraphs:
-            full_text.append(para.text)
-            
+        full_text = [para.text for para in doc.paragraphs]
         for table in doc.tables:
-            for row in table.rows:
-                full_text.append(' | '.join(cell.text for cell in row.cells))
-                
-        return '\n'.join(full_text)
+            full_text.extend(' | '.join(cell.text for cell in row.cells) 
+                          for row in table.rows)
+        return '\n'.join(filter(None, full_text))
     except Exception as e:
         raise ValueError(f"DOCX processing failed: {str(e)}")
 
 def process_document(file, true_mime):
+    """Main document processing function"""
     content = file.read()
     file.stream.seek(0)
-    
     filename = (file.filename or "unnamed").lower()
-    
-    # Handle Office Open XML format detection
-    if true_mime == 'application/zip' and filename.endswith('.docx'):
-        true_mime = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 
-    valid_types = {
-        'application/pdf': extract_pdf_text,
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document': extract_docx_text
-    }
-    
-    if true_mime not in valid_types:
-        raise ValueError(f"Unsupported file type: {true_mime} (Filename: {filename})")
-    
-    # Extract text
-    text = valid_types[true_mime](io.BytesIO(content))
-    
-    if not text.strip():
-        raise ValueError("Document appears empty or unreadable")
-    
-    # AI Analysis
-    analysis = analyze_with_gpt4(text)
-    
-    return {
-        "filename": filename,
-        "content": text[:1000] + "...",
-        "analysis": analysis,
-        "mime_type": true_mime,
-        "processed_at": datetime.now().isoformat()
-    }
+    try:
+        # PDF handling
+        if true_mime == 'application/pdf':
+            if is_scanned_pdf(content):
+                text = ocr_pdf(io.BytesIO(content))
+            else:
+                text = extract_pdf_text(io.BytesIO(content))
+        
+        # DOCX handling
+        elif true_mime == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
+            text = extract_docx_text(io.BytesIO(content))
+        
+        else:
+            raise ValueError(f"Unsupported file type: {true_mime}")
+
+        if not text.strip():
+            raise ValueError("Document appears empty or unreadable")
+
+        return {
+            "filename": filename,
+            "content": text[:1000] + "...",
+            "analysis": analyze_with_gpt4(text),
+            "mime_type": true_mime,
+            "processed_at": datetime.now().isoformat()
+        }
+
+    except Exception as e:
+        return {
+            "filename": filename,
+            "error": str(e),
+            "status": "failed"
+        }
+
 
 def parse_chronology(analysis_text):
     """Convert AI output to structured timeline"""
@@ -124,46 +129,40 @@ def analyze_with_gpt4(text):
     )
     return response.choices[0].message.content
 
-def detect_missing_reports(processed_files):
-    """GPT-4 powered missing document detection"""
-    from openai import OpenAI
-    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    
+def detect_missing_reports(analyses):
+    """Use GPT-4 to identify missing document types"""
     required_docs = [
-        "Accident/Incident Report",
-        "Hospital Admission Records",
-        "Discharge Summary",
-        "Imaging Results",
-        "Treatment Plans",
-        "Insurance Claim Forms"
+        "Accident/Incident Report (official police or employer report)",
+        "Hospital Admission Records (initial emergency room documentation)",
+        "Discharge Summary (final hospital treatment summary)",
+        "Imaging Results (X-ray, MRI, CT scan reports)",
+        "Treatment Plans (ongoing care documentation)",
+        "Insurance Claim Forms (submitted insurance documentation)"
     ]
-
-    # Extract analysis texts safely
-    analysis_texts = []
-    for doc in processed_files:
-        if isinstance(doc, dict) and 'analysis' in doc:
-            analysis_texts.append(doc['analysis'])
-        else:
-            analysis_texts.append(str(doc))
-
-    prompt = f"""Analyze these legal document analyses and list missing required docs:
-    Required documents: {required_docs}
     
-    Analyses:
-    {' '.join(analysis_texts)[:12000]}
+    analysis_text = "\n\n".join([res['analysis'] for res in analyses])
     
-    Return ONLY missing document names as a comma-separated list.
+    prompt = f"""Analyze these legal medical documents and identify if there is any missing documents:
+    
+    Required Document Types:
+    {chr(10).join(required_docs)}
+    
+    Document Analysis:
+    {analysis_text[:12000]}
+    
+    Return ONLY a comma-separated list of missing document type names from the required list.
     """
-
+    
     response = client.chat.completions.create(
-        model="gpt-4",
+        model="gpt-4o",
         messages=[
-            {"role": "system", "content": "Identify missing legal documents"},
+            {"role": "system", "content": "You are a legal document analyst identifying missing case documents"},
             {"role": "user", "content": prompt}
         ],
         temperature=0.1
     )
     
-    return [doc for doc in required_docs if doc.lower() in response.choices[0].message.content.lower()]
+    missing = response.choices[0].message.content.split(", ")
+    return [doc for doc in required_docs if any(keyword in doc.lower() for keyword in missing)]
 
 __all__ = ['process_document', 'detect_missing_reports'] 
