@@ -126,37 +126,63 @@ def display_results():
         # Merged chronology
         all_events = []
         for result in st.session_state.processed_files:
-            if 'analysis' not in result:  # Add safety check
+            analysis = result.get('analysis')
+            if not analysis:
                 st.error(f"Missing analysis for {result.get('filename', 'unknown file')}")
                 continue
                 
             try:
-                events = parse_chronology(result['analysis'])
+                events = parse_chronology(analysis)
                 all_events.extend(events)
             except Exception as e:
-                st.error(f"Failed to parse chronology for {result['filename']}: {str(e)}")
-        
-        with st.expander("📅 Integrated Medical Chronology", expanded=True):
-            for event in sorted(all_events, key=lambda x: x['date']):
-                st.markdown(f"**{event['date']}**: {event['description']}")
+                st.error(f"Chronology error: {str(e)}")
 
-        # Individual document analysis
+        # Display merged timeline
+        if all_events:
+            with st.expander("📅 Integrated Medical Chronology", expanded=True):
+                for event in sorted(all_events, key=lambda x: x['date']):
+                    st.markdown(f"**{event['date']}**: {event.get('description', 'No description')}")
+        else:
+            st.warning("No chronological events could be extracted")
+
+        # Individual document details
         st.subheader("Document Details", divider="blue")
-        for result in st.session_state.processed_files:
-            with st.expander(f"📄 {result['filename']}"):
-                st.write(f"**Processed:** {result['processed_at']}")
-                st.text_area("Content Preview", result['content'], height=200)
-                st.markdown("**AI Analysis**")
-                st.write(result['analysis'])
+        for idx, result in enumerate(st.session_state.processed_files):
+            with st.expander(f"📄 {result.get('filename', f'Document {idx+1}')}"):
+                # Metadata section
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.write(f"**Status:** {result.get('status', 'unknown')}")
+                with col2:
+                    st.write(f"**Processed:** {result.get('processed_at', 'timestamp unavailable')}")
+                
+                # Content preview
+                content = result.get('content', 'No content available')
+                st.text_area("Content Preview", 
+                           value=content,
+                           height=200,
+                           key=f"content_{idx}")
+                
+                # AI Analysis
+                st.markdown("### AI Analysis")
+                analysis = result.get('analysis', 'No analysis generated')
+                st.write(analysis)
+                
+                # Show raw error if present
+                if 'error' in result:
+                    st.error("Processing Error Details")
+                    st.code(result['error'], language="text")
+
+        # Document completeness check
         with st.expander("🔍 Document Completeness Check", expanded=True):
             if 'missing_reports' not in st.session_state:
                 with st.spinner("Analyzing document requirements..."):
                     try:
                         st.session_state.missing_reports = detect_missing_reports(
-                            st.session_state.processed_files  # Pass full objects
+                            st.session_state.processed_files
                         )
                     except Exception as e:
-                        st.error(f"Document analysis failed: {str(e)}")
+                        st.error(f"Completeness check failed: {str(e)}")
                         st.session_state.missing_reports = []
             
             if st.session_state.missing_reports:
@@ -164,9 +190,9 @@ def display_results():
                 for doc in st.session_state.missing_reports:
                     st.write(f"- {doc}")
             else:
-                st.success("All required documents present!")
+                st.success("All required documents verified!")
                 
-        # Add chat interface
+        # Chat interface
         chat_interface()                  
                 
 def main_interface():
