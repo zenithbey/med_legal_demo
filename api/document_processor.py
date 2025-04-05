@@ -80,15 +80,16 @@ def process_document(file, true_mime):
         return {
             "filename": filename,
             "content": text[:1000] + "...",
-            "analysis": analyze_with_gpt4(text),
+            "analysis": analyze_with_gpt4(text) if text else "Analysis failed: Empty document",
             "mime_type": true_mime,
-            "processed_at": datetime.now().isoformat()
+            "processed_at": datetime.now().isoformat(),
+            "status": "success"
         }
 
     except Exception as e:
         return {
             "filename": filename,
-            "error": str(e),
+            "analysis": f"Analysis failed: {str(e)}",
             "status": "failed"
         }
 
