@@ -123,11 +123,18 @@ def display_results():
     if st.session_state.processed_files:
         st.subheader("Analysis Results", divider="green")
         
-        # Merged chronology only
+        # Merged chronology
         all_events = []
         for result in st.session_state.processed_files:
-            events = parse_chronology(result['analysis'])
-            all_events.extend(events)
+            if 'analysis' not in result:  # Add safety check
+                st.error(f"Missing analysis for {result.get('filename', 'unknown file')}")
+                continue
+                
+            try:
+                events = parse_chronology(result['analysis'])
+                all_events.extend(events)
+            except Exception as e:
+                st.error(f"Failed to parse chronology for {result['filename']}: {str(e)}")
         
         with st.expander("📅 Integrated Medical Chronology", expanded=True):
             for event in sorted(all_events, key=lambda x: x['date']):
