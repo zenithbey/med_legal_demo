@@ -7,8 +7,9 @@ import re
 from datetime import datetime
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-load_dotenv('../config.env')
+env_path = Path(__file__).resolve().parent.parent / "config.env"
+print(f"Looking for config at: {env_path}")  # Debug line
+load_dotenv(env_path)
 
 def parse_chronology(analysis_text):
     """Extract dates and events from AI analysis output"""
@@ -126,63 +127,37 @@ def display_results():
         # Merged chronology
         all_events = []
         for result in st.session_state.processed_files:
-            analysis = result.get('analysis')
-            if not analysis:
+            if 'analysis' not in result:  # Add safety check
                 st.error(f"Missing analysis for {result.get('filename', 'unknown file')}")
                 continue
                 
             try:
-                events = parse_chronology(analysis)
+                events = parse_chronology(result['analysis'])
                 all_events.extend(events)
             except Exception as e:
-                st.error(f"Chronology error: {str(e)}")
+                st.error(f"Failed to parse chronology for {result['filename']}: {str(e)}")
+        
+        with st.expander("📅 Integrated Medical Chronology", expanded=True):
+            for event in sorted(all_events, key=lambda x: x['date']):
+                st.markdown(f"**{event['date']}**: {event['description']}")
 
-        # Display merged timeline
-        if all_events:
-            with st.expander("📅 Integrated Medical Chronology", expanded=True):
-                for event in sorted(all_events, key=lambda x: x['date']):
-                    st.markdown(f"**{event['date']}**: {event.get('description', 'No description')}")
-        else:
-            st.warning("No chronological events could be extracted")
-
-        # Individual document details
+        # Individual document analysis
         st.subheader("Document Details", divider="blue")
-        for idx, result in enumerate(st.session_state.processed_files):
-            with st.expander(f"📄 {result.get('filename', f'Document {idx+1}')}"):
-                # Metadata section
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.write(f"**Status:** {result.get('status', 'unknown')}")
-                with col2:
-                    st.write(f"**Processed:** {result.get('processed_at', 'timestamp unavailable')}")
-                
-                # Content preview
-                content = result.get('content', 'No content available')
-                st.text_area("Content Preview", 
-                           value=content,
-                           height=200,
-                           key=f"content_{idx}")
-                
-                # AI Analysis
-                st.markdown("### AI Analysis")
-                analysis = result.get('analysis', 'No analysis generated')
-                st.write(analysis)
-                
-                # Show raw error if present
-                if 'error' in result:
-                    st.error("Processing Error Details")
-                    st.code(result['error'], language="text")
-
-        # Document completeness check
+        for result in st.session_state.processed_files:
+            with st.expander(f"📄 {result['filename']}"):
+                st.write(f"**Processed:** {result['processed_at']}")
+                st.text_area("Content Preview", result['content'], height=200)
+                st.markdown("**AI Analysis**")
+                st.write(result['analysis'])
         with st.expander("🔍 Document Completeness Check", expanded=True):
             if 'missing_reports' not in st.session_state:
                 with st.spinner("Analyzing document requirements..."):
                     try:
                         st.session_state.missing_reports = detect_missing_reports(
-                            st.session_state.processed_files
+                            st.session_state.processed_files  # Pass full objects
                         )
                     except Exception as e:
-                        st.error(f"Completeness check failed: {str(e)}")
+                        st.error(f"Document analysis failed: {str(e)}")
                         st.session_state.missing_reports = []
             
             if st.session_state.missing_reports:
@@ -190,9 +165,9 @@ def display_results():
                 for doc in st.session_state.missing_reports:
                     st.write(f"- {doc}")
             else:
-                st.success("All required documents verified!")
+                st.success("All required documents present!")
                 
-        # Chat interface
+        # Add chat interface
         chat_interface()                  
                 
 def main_interface():
@@ -286,6 +261,8 @@ def generate_chat_response(prompt, context):
     
     return response.choices[0].message.content
 def main():
+    load_dotenv('../config.env')
+    print("API_KEY:", os.getenv('API_KEY'))
     initialize_session_state()
     handle_authentication()
     main_interface()

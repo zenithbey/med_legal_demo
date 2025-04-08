@@ -7,8 +7,10 @@ from dotenv import load_dotenv
 import magic
 from openai import OpenAIError
 
-env_path = Path(__file__).resolve().parent.parent / 'config.env'
+env_path = Path(__file__).resolve().parent.parent / "config.env"
+print(f"Looking for config at: {env_path}")  # Debug line
 load_dotenv(env_path)
+
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB limit
@@ -61,4 +63,5 @@ def process_file():
         }), 400
 
 if __name__ == '__main__':
+    print("API_KEY:", os.getenv('API_KEY'))
     app.run(host='0.0.0.0', port=5000, debug=True)
